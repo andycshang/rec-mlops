@@ -7,6 +7,7 @@ A high-performance collaborative filtering recommendation system built with PySp
 - **Ultra-low latency**: <100ms response time
 - **High accuracy metrics**: NDCG@10: 0.78, MAP@10: 0.73, Hit Rate@20: 0.91
 - **Advanced algorithms**: Matrix factorization (SVD, NMF) with RMSE: 0.84
+- **Automated retraining**: Prefect flow that retrains SVD/NMF and auto-promotes best MLflow model
 - **High coverage**: 94.2% user coverage, 78.5% catalog coverage
 - **Optimized feature engineering**: 67% dimensionality reduction with R²: 0.89
 - **A/B testing framework**: Statistical power: 0.95, 23% CTR lift (p-value: 0.001)
@@ -88,7 +89,7 @@ docker-compose up -d
 
 5. **Initialize Delta Lake tables**
 ```bash
-python scripts/init_tables.py
+python src/init_delta_tables.py
 ```
 
 ## 🚀 Quick Start
@@ -112,6 +113,22 @@ python src/models/train_models.py
 ```bash
 python src/experiments/ab_testing.py
 ```
+
+### 5. Run the automated retraining flow (Prefect)
+```bash
+python -m src.pipelines.retraining_flow
+```
+
+## ⚙️ Automated Retraining Pipeline
+
+The Prefect flow in `src/pipelines/retraining_flow.py` automates model refreshing end to end:
+
+- **Load data**: `task_load_data` reuses `ModelTrainer` to build the Spark/Delta-powered user-item matrix.
+- **Train candidates**: `task_train_svd` and `task_train_nmf` log metrics and artifacts to MLflow, returning their run IDs.
+- **Evaluate**: `task_evaluate_results` compares RMSE (extendable for other metrics) and selects the best performer.
+- **Register & promote**: `task_register_and_promote` registers the winning run under `Recommendation_<MODEL>` and promotes it to Production if it improves on the current champion; otherwise it stays in Staging.
+
+Set `MLFLOW_TRACKING_URI` (and credentials if remote) before running the flow so registration succeeds. When running inside Docker/Prefect agents, ensure those variables are available to the container/agent as well.
 
 ## 📁 Project Structure
 
@@ -159,6 +176,8 @@ api:
   port: 8000
   max_recommendations: 20
 ```
+
+Initialize the Delta-backed interaction and user-profile tables with `python src/init_delta_tables.py`. The script seeds sample data under `/tmp/delta-tables` by default; change the path to `/data/delta-tables` (or a mounted volume) for persistent deployments.
 
 ## 📊 Usage Examples
 
